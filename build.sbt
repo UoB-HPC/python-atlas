@@ -86,12 +86,9 @@ lazy val webapp = project
     useYarn              := true,
     webpackDevServerPort := 8001,
     stUseScalaJsDom      := true,
-//    webpack / version := "4.46.0",
-//    startWebpackDevServer / version   := "3.1.4",
-
-    webpack / version               := "5.64.2",
+    webpack / version               := "5.73.0",
     webpackCliVersion               := "4.10.0",
-    startWebpackDevServer / version := "4.5.0",
+    startWebpackDevServer / version := "4.9.3",
     Compile / fastOptJS / webpackExtraArgs += "--mode=development",
     Compile / fullOptJS / webpackExtraArgs += "--mode=production",
     Compile / fastOptJS / webpackDevServerExtraArgs += "--mode=development",
@@ -124,20 +121,19 @@ lazy val webapp = project
       "bulma"                         -> "0.9.4",
 
       // Visualisations
-      "@deck.gl/core"   -> "8.8.3",
-      "@deck.gl/layers" -> "8.8.3",
+      "@deck.gl/core"   -> "8.8.4",
+      "@deck.gl/layers" -> "8.8.4",
 
       // Fuzzy search
       "quick-score" -> "0.2.0",
       "hyperlist"   -> "1.0.0"
     ),
     Compile / npmDevDependencies ++= Seq(
-      "webpack-merge" -> "4.1",
-      "css-loader"    -> "2.1.0",
-      "style-loader"  -> "0.23.1",
-      "file-loader"   -> "3.0.1",
-      "url-loader"    -> "1.1.2",
-      "ignore-loader" -> "0.1.2"
+      "webpack-merge" -> "5.8.0",
+      "css-loader"    -> "6.7.1",
+      "style-loader"  -> "3.3.1",
+      "file-loader"   -> "6.2.0",
+      "url-loader"    -> "1.1.2"
     )
   )
   .settings(
@@ -150,13 +146,19 @@ lazy val webapp = project
       val distFolder     = (ThisBuild / baseDirectory).value / "docs"
 
       distFolder.mkdirs()
+      IO.deleteFilesEmptyDirs(Seq(distFolder.file))
+
       artifacts.foreach { artifact =>
         val target = artifact.data.relativeTo(artifactFolder) match {
           case None          => distFolder / artifact.data.name
           case Some(relFile) => distFolder / relFile.toString
         }
-
-        Files.copy(artifact.data.toPath, target.toPath, REPLACE_EXISTING)
+        IO.copy(
+          Seq(artifact.data.file -> target),
+          overwrite = true,
+          preserveLastModified = true,
+          preserveExecutable = false
+        )
       }
 
       val index           = "index.html"
