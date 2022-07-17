@@ -6,7 +6,7 @@ import com.raquo.laminar.api.L
 import com.raquo.laminar.api.L.*
 import com.raquo.waypoint.*
 import org.scalajs.dom
-import org.scalajs.dom.console
+import org.scalajs.dom.{console, window}
 import uob_hpc.python_atlas.Main.Page.*
 
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -32,22 +32,26 @@ object Main {
     given ReadWriter[PackagePage] = macroRW
   }
 
+
+
+  val basePath = s"${window.location.pathname}#"
+
   val router = new Router[Page](
     routes = List(
-      Route.static(Page.AtlasPage, root / endOfSegments, Route.fragmentBasePath),
+      Route.static(Page.AtlasPage, root / endOfSegments, basePath),
       Route[Page.AboutPage, String](
         _.section,
         Page.AboutPage(_),
         root / "about" / segment[String] / endOfSegments,
-        Route.fragmentBasePath
+        basePath
       ),
-      Route.static(Page.AboutPage(), root / "about" / endOfSegments, Route.fragmentBasePath),
-      Route.static(Page.StatsPage, root / "stats" / endOfSegments, Route.fragmentBasePath),
+      Route.static(Page.AboutPage(), root / "about" / endOfSegments, basePath),
+      Route.static(Page.StatsPage, root / "stats" / endOfSegments, basePath),
       Route.onlyQuery[Page.PackagePage, String](
         _.name,
         PackagePage(_),
         (root / "package" / endOfSegments) ? param[String]("name"),
-        Route.fragmentBasePath
+        basePath
       )
     ),
     getPageTitle = p => s"PyAtlas${p.title}",
@@ -61,7 +65,7 @@ object Main {
   def navigateTo(page: Page): Binder[HtmlElement] = Binder { el =>
     val isLinkElement = el.ref.isInstanceOf[dom.html.Anchor]
     if (isLinkElement)
-      el.amend(href(router.absoluteUrlForPage(page)))
+      el.amend(href(router.relativeUrlForPage(page)))
     (onClick
       .filter(ev => !(isLinkElement && (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey)))
       .preventDefault
@@ -142,7 +146,7 @@ object Main {
 
     val pageSplitter = SplitRender[Page, HtmlElement](router.$currentPage)
       .collectSignal[PackagePage]($appPage => div("Pkg=", child.text <-- $appPage.map(_.name)))
-      .collectSignal[AboutPage](p => About(p.map(_.section), router.absoluteUrlForPage(AboutPage())))
+      .collectSignal[AboutPage](p => About(p.map(_.section), router.relativeUrlForPage(AboutPage())))
       .collectStatic(StatsPage)(Stats(dataset))
       .collectStatic(AtlasPage)(Atlas(dataset))
 
