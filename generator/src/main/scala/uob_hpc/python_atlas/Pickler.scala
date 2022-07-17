@@ -16,6 +16,9 @@ object Pickler extends upickle.AttributeTagged {
 
   opaque type StringList = List[String]
   object StringList {
+    extension (xs : StringList){
+      def toList : List[String] = xs
+    }
     val empty: StringList = List.empty[String]
     given ReadWriter[StringList] =
       readwriter[ujson.Value]

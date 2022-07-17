@@ -16,9 +16,10 @@ lazy val start = TaskKey[Unit]("start")
   */
 lazy val dist = TaskKey[File]("dist")
 
-lazy val scala3Version = "3.1.3"
-lazy val catsVersion   = "2.8.0"
-lazy val munitVersion  = "1.0.0-M5"
+lazy val scala3Version  = "3.1.3"
+lazy val catsVersion    = "2.8.0"
+lazy val upickleVersion = "2.0.0"
+lazy val munitVersion   = "1.0.0-M5"
 
 lazy val commonSettings = Seq(
   scalaVersion     := scala3Version,
@@ -57,14 +58,12 @@ lazy val generator = project
     name := "generator",
     libraryDependencies ++=
       Seq(
-        "io.github.pityka" %% "nspl-awt" % "0.9.0",
-//        "io.github.pityka"              %% "nspl-saddle"                % "0.9.0",
         "org.jgrapht"                    % "jgrapht-core"               % "1.5.1",
         "org.jgrapht"                    % "jgrapht-io"                 % "1.5.1",
         "org.scala-lang.modules"        %% "scala-parallel-collections" % "1.0.4",
         "org.typelevel"                 %% "cats-core"                  % catsVersion,
-        "org.typelevel"                 %% "cats-parse"                 % "0.3.7",
-        "com.lihaoyi"                   %% "upickle"                    % "2.0.0",
+        "org.typelevel"                 %% "cats-parse"                 % "0.3.8",
+        "com.lihaoyi"                   %% "upickle"                    % upickleVersion,
         "com.softwaremill.sttp.client3" %% "core"                       % "3.6.2",
         "org.scalameta"                 %% "munit"                      % "0.7.29" % Test
       )
@@ -77,15 +76,16 @@ lazy val webapp = project
     commonSettings,
     name                            := "webapp",
     scalaJSUseMainModuleInitializer := true,
+    Compile / watchTriggers += (baseDirectory.value / "src/main/js/public").toGlob / "*.*",
     scalaJSLinkerConfig ~= ( //
       _.withSourceMap(false)
         .withModuleKind(ModuleKind.CommonJSModule)
         .withESFeatures(ESFeatures.Defaults.withESVersion(ESVersion.ES2015))
         .withParallel(true)
     ),
-    useYarn              := true,
-    webpackDevServerPort := 8001,
-    stUseScalaJsDom      := true,
+    useYarn                         := true,
+    webpackDevServerPort            := 8001,
+    stUseScalaJsDom                 := true,
     webpack / version               := "5.73.0",
     webpackCliVersion               := "4.10.0",
     startWebpackDevServer / version := "4.9.3",
@@ -93,11 +93,13 @@ lazy val webapp = project
     Compile / fullOptJS / webpackExtraArgs += "--mode=production",
     Compile / fastOptJS / webpackDevServerExtraArgs += "--mode=development",
     Compile / fullOptJS / webpackDevServerExtraArgs += "--mode=production",
-    webpackConfigFile := Some((ThisBuild / baseDirectory).value / "custom.webpack.config.js"),
+    webpackConfigFile := Some((ThisBuild / baseDirectory).value / "webpack.config.mjs"),
     libraryDependencies ++= Seq(
-      "org.scala-js" %%% "scalajs-dom" % "2.2.0",
-      "com.raquo"    %%% "laminar"     % "0.14.2",
-      "com.raquo"    %%% "waypoint"    % "0.5.0"
+      "org.scala-js"     %%% "scalajs-dom"       % "2.2.0",
+      "com.raquo"        %%% "laminar"           % "0.14.2",
+      "com.raquo"        %%% "waypoint"          % "0.5.0",
+      "io.github.pityka" %%% "nspl-scalatags-js" % "0.9.0",
+      "com.lihaoyi"      %%% "upickle"           % upickleVersion
     ),
     stIgnore ++= List(
       "csstype",
@@ -129,11 +131,20 @@ lazy val webapp = project
       "hyperlist"   -> "1.0.0"
     ),
     Compile / npmDevDependencies ++= Seq(
-      "webpack-merge" -> "5.8.0",
-      "css-loader"    -> "6.7.1",
-      "style-loader"  -> "3.3.1",
-      "file-loader"   -> "6.2.0",
-      "url-loader"    -> "1.1.2"
+      "webpack-merge"            -> "5.8.0",
+      "css-loader"               -> "6.7.1",
+      "style-loader"             -> "3.3.1",
+      "file-loader"              -> "6.2.0",
+      "url-loader"               -> "1.1.2",
+      "html-loader"              -> "4.1.0",
+      "remark"                   -> "14.0.2",
+      "remark-loader"            -> "5.0.0",
+      "remark-toc"               -> "8.0.1",
+      "remark-parse"             -> "10.0.1",
+      "remark-rehype"            -> "10.1.0",
+      "rehype-autolink-headings" -> "6.1.1",
+      "rehype-slug"              -> "5.0.1",
+      "rehype-stringify"         -> "9.0.3"
     )
   )
   .settings(

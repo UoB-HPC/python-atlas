@@ -1,5 +1,10 @@
 package uob_hpc.python_atlas
 
+import com.raquo.airstream.state.Var
+import org.scalajs.dom.fetch
+
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Future
 import scala.scalajs.js
 import scala.scalajs.js.annotation.JSGlobal
 
@@ -38,17 +43,29 @@ type ValueOr[A, B]    = B | js.Function1[A, B]
 type ValueOrOpt[A, B] = js.UndefOr[ValueOr[A, B]]
 
 // XXX the entries are serialised as an array to save space and parse time:
-type JsAtlasLayout = AtlasLayout[js.Array, JsAtlasEntry]
+type JsAtlasLayout =  AtlasLayout[js.Array, JsAtlasEntry]
 class JsAtlasEntry extends js.Object with AtlasLayout.Entry[js.Array, Coordinate, Dimension] {
-  private inline def self                              = this.asInstanceOf[js.Array[js.Any]]
-  override inline def name: String                     = self.apply(0).asInstanceOf // [String]
-  override inline def position: Coordinate             = self.apply(1).asInstanceOf // [Coordinate]
-  override inline def size: Dimension                  = self.apply(2).asInstanceOf // [Dimension]
-  override inline def dependents: Int                  = self.apply(3).asInstanceOf // [Int]
-  override inline def dependencyIndices: js.Array[Int] = self.apply(4).asInstanceOf // [js.Array[Int]]
-  override inline def channelIndices: js.Array[Int]    = self.apply(5).asInstanceOf // [js.Array[Int]]
-  override inline def subdirIndices: js.Array[Int]     = self.apply(6).asInstanceOf // [js.Array[Int]]
-  override inline def markerIndices: js.Array[Int]     = self.apply(7).asInstanceOf // [js.Array[Int]]
+  private inline def self          = this.asInstanceOf[js.Array[js.Any]]
+  override inline def name: String = self(0).asInstanceOf
+
+  override inline def position: Coordinate             = self(1).asInstanceOf
+  override inline def size: Dimension                  = self(2).asInstanceOf
+  override inline def dependents: Int                  = self(3).asInstanceOf
+  override inline def dependencyIndices: js.Array[Int] = self(4).asInstanceOf
+  override inline def channelIndices: js.Array[Int]    = self(5).asInstanceOf
+  override inline def subdirIndices: js.Array[Int]     = self(6).asInstanceOf
+  override inline def markerIndices: js.Array[Int]     = self(7).asInstanceOf
+
+  // XXX None in Option[T] maps to a JSON null
+  private inline def maybe[C[_], A](inline x: js.Any)(using inline ev: Option[A] <:< C[A]): C[A] =
+    ev(Option(x.asInstanceOf[A]))
+
+  override inline def description: Option[String]   = maybe(self(8))
+  override inline def url: Option[String]           = maybe(self(9))
+  override inline def licence: Option[String]       = maybe(self(10))
+  override inline def version: Option[String]       = maybe(self(11))
+  override inline def modifiedEpochMs: Option[Long] = maybe[Option, Double](self(12)).map(_.toLong)
+
 }
 
 case class Colour(hex: Int) {
@@ -61,7 +78,7 @@ case class Colour(hex: Int) {
     (g + that.g) / 2,
     (b + that.b) / 2
   )
-  inline def rgb: js.Array[Int] = js.Array(r , g , b  )
+  inline def rgb: js.Array[Int] = js.Array(r, g, b)
 }
 object Colour {
   inline def apply(r: Int, g: Int, b: Int): Colour = {
@@ -104,4 +121,9 @@ final val Colours = Seq(
   Colour(0x0c5922),
   Colour(0x743411)
 )
-inline def mkColour(inline n: Int) = Colours(n % (Colours.size-1))
+inline def mkColour(inline n: Int) = Colours(n % (Colours.size - 1))
+
+given [A: upickle.default.ReadWriter]: upickle.default.ReadWriter[Var[A]] =
+  upickle.default.readwriter[A].bimap[Var[A]](_.now(), Var(_))
+
+def fetchJson[A](url: String): Future[A] = fetch(url).toFuture.flatMap(_.json().toFuture).map(_.asInstanceOf[A])

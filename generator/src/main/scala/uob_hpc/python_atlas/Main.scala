@@ -1,6 +1,8 @@
 package uob_hpc.python_atlas
 
+import cats.data.NonEmptyList
 import cats.syntax.all.*
+import cats.{Monoid, Order}
 import org.jgrapht.graph.DefaultEdge
 import org.jgrapht.nio.DefaultAttribute
 import sttp.model.Uri
@@ -27,44 +29,6 @@ def timed[R](name: String)(block: => R): R = {
   val (r, elapsed) = timed(block)
   println(s"[$name] ${elapsed}s")
   r
-}
-
-def mkBoxChart(name: String)(xs: List[(String, Double)]) = {
-  import org.nspl.*
-  import org.nspl.awtrenderer.*
-
-  val p = par()
-
-  val plot = xyplot(
-    (
-      xs.map(_._2).zipWithIndex.map { case (x, i) => x -> i.toDouble },
-      bar(
-        horizontal = true,
-        fill = RedBlue(0, 5),
-        fillCol = 0
-      ) :: Nil,
-      NotInLegend
-    )
-  )(
-    p.copy(
-      yNumTicks = 0,
-      yHeight = (xs.length * 1).fts,
-      yLabFontSize = math.min(0.6d, p.yHeight.value / xs.length).fts,
-      ynames = xs
-        .map(_._1)
-        .zipWithIndex
-        .map(x => x._1 -> x._2.toDouble)
-        .map(_.swap)
-    )
-  )
-
-  Files.write(
-    Paths.get(s"${name}.png").toAbsolutePath,
-    renderToByteArray(plot.build, width = 1200),
-    StandardOpenOption.CREATE,
-    StandardOpenOption.TRUNCATE_EXISTING,
-    StandardOpenOption.WRITE
-  )
 }
 
 @main def main2: Unit = {
@@ -116,13 +80,24 @@ case class JvmAtlasLayout(
 
 case class JvmAtlasEntry(
     name: String,
+
+    // Layout
     position: (Double, Double),
     size: (Double, Double),
+
+    // Edges
     dependents: Int,
     dependencyIndices: Set[Int],
     channelIndices: Set[Int],
     subdirIndices: Set[Int],
-    markerIndices: Set[Int]
+    markerIndices: Set[Int],
+
+    //Meta
+    description: Option[String],
+    url: Option[String],
+    licence: Option[String],
+    version: Option[String],
+    modifiedEpochMs: Option[Long],
 ) extends AtlasLayout.Entry[Set, (Double, Double), (Double, Double)]
 
 private val mirror = summon[scala.deriving.Mirror.Of[JvmAtlasEntry]]
@@ -148,7 +123,7 @@ given Pickler.Writer[JvmAtlasLayout] = Pickler.macroW
 //      }
 
 def createAtlas(channels: List[String], dotFile: Path, jsonFile: Path) = for {
-  channelData <- timed("Read ChannelData")(
+  channelData: Seq[(Channel, ChannelData)] <- timed("Read ChannelData")(
     channels.par
       .map(c =>
         timed(s"Read ChannelData($c)")(ChannelData(c))
@@ -158,6 +133,24 @@ def createAtlas(channels: List[String], dotFile: Path, jsonFile: Path) = for {
       .seq
       .sequence
   )
+
+  latestPackageMeta = timed("Extract latest meta") {
+    channelData
+      .foldMap { case (_, chan) => chan.packages.map { case (name, p) => name -> NonEmptyList.one(p) } }
+      .map { case (name, xs) => name -> xs.sortBy(_.timestamp.getOrElse(Instant.MIN))(using Order.fromOrdering[Instant]).head }
+      .map { case (name, p : Conda.ChannelData.Package) =>
+        val url = (p.dev_url.toList ::: p.doc_url.toList ::: p.home.toList).distinct
+        .sortBy(s => !(s.startsWith("https://github.com") || s.startsWith("http://github.com")))
+        .headOption
+      val desc    = (p.description.toList ::: p.summary.toList).sortBy(_.length).headOption
+      val licence = p.license
+      val version = p.version
+      name -> (desc, url, licence, version , p.timestamp.map(_.toEpochMilli))
+    }
+  }
+
+
+
   repos <- timed("Read RepoData")(
     (for {
       (chan, data) <- channelData
@@ -200,7 +193,7 @@ def createAtlas(channels: List[String], dotFile: Path, jsonFile: Path) = for {
     List("r-base")                        -> "R language",
     List("python", "python_abi")          -> "Python",
     List("anaconda", "_anaconda_depends") -> "Anaconda",
-    List("vc")                            -> "Visual Studio",
+    List("vc")                            -> "Visual Studio"
   )
   nameToMarker = markerPackages.flatMap { case (ks, v) => ks.map(_ -> v) }.to(TreeMap)
 
@@ -215,12 +208,12 @@ def createAtlas(channels: List[String], dotFile: Path, jsonFile: Path) = for {
       if !nameToMarker.contains(p.name)
       ds = p.depends.map(_.name).toSet
     } {
-        G.addVertex(p.name)
-        ds.filterNot(nameToMarker.contains(_)).foreach { d =>
-          G.addVertex(d)
-          G.addEdge(d, p.name)
-        }
+      G.addVertex(p.name)
+      ds.filterNot(nameToMarker.contains(_)).foreach { d =>
+        G.addVertex(d)
+        G.addEdge(d, p.name)
       }
+    }
     G
   }
 
@@ -264,18 +257,9 @@ def createAtlas(channels: List[String], dotFile: Path, jsonFile: Path) = for {
     println(s"Dot: ${Files.size(dotFile) / 1024}KiB")
   }
 
-  (incoming, outgoing) = graphWithoutMarkers.vertexSet.asScala.map { v =>
-    val outgoingN = graphWithoutMarkers.outgoingEdgesOf(v).size
-    val incomingN = graphWithoutMarkers.incomingEdgesOf(v).size
-    (s"$v (${incomingN})"   -> incomingN.toDouble) ->
-      (s"$v (${outgoingN})" -> outgoingN.toDouble)
-  }.unzip
-  _ = mkBoxChart("dependents")(outgoing.toList.sortBy(-_._2).take(50).reverse)
-  _ = mkBoxChart("dependencies")(incoming.toList.sortBy(-_._2).take(50).reverse)
-
   channels = repoPackages.keys.map(_._1.name).to(ArraySeq).sorted
   subdirs  = repoPackages.keys.map(_._2.name).to(ArraySeq).sorted
-  markers  = nameToMarker.values.to(ArraySeq).sorted
+  markers  = nameToMarker.values.to(ArraySeq).distinct.sorted
   dotJson <- timed("DOT")(Dot(dotFile))
   dot     <- timed("Parse DOT json0")(Dot.Json0(dotJson.mkString))
   nodeLayouts <- timed("Extract node layout") {
@@ -320,6 +304,7 @@ def createAtlas(channels: List[String], dotFile: Path, jsonFile: Path) = for {
           case bad => Left(err(s"Cannot parse pos ($bad) for $n"))
         }
         (channels, subdirs, markers) = nodeGroups(n.name)
+        (d, u, l, v, e ) = latestPackageMeta.getOrElse(n.name, (None, None, None, None, None) )
       } yield JvmAtlasEntry(
         name = n.name,
         position = pos2,
@@ -328,7 +313,14 @@ def createAtlas(channels: List[String], dotFile: Path, jsonFile: Path) = for {
         dependencyIndices = nodeIdToIndexedTails.getOrElse(n._gvid, Set.empty),
         channelIndices = channels,
         subdirIndices = subdirs,
-        markerIndices = markers
+        markerIndices = markers,
+
+        description = d,
+        url = u,
+        licence = l,
+        version = v,
+        modifiedEpochMs = e
+
       )
     }
   }
@@ -342,19 +334,22 @@ def createAtlas(channels: List[String], dotFile: Path, jsonFile: Path) = for {
 
 } yield ()
 
+val outputRoot = Paths.get("webapp/src/main/js/public")
+
 @main def main(): Unit =
   timed("Total")(for {
     _ <- timed("Atlas")(
       createAtlas(
         channels = List("conda-forge", "anaconda"),
-        dotFile = Paths.get(s"atlas.dot"),
-        jsonFile = Paths.get("atlas_layout.json")
+        dotFile = outputRoot.resolve(s"atlas.dot"),
+        jsonFile = outputRoot.resolve("atlas_layout.json")
       )
     )
+
     maybeIndex <- timed("PEP681")(PyPi.Pep681.RepoIndex())
     index      <- maybeIndex.toRight(new RuntimeException("No PEP681 index available"))
     _         = println(s"PRP681 packages:${index.projects.size}")
     _         = println(s"PRP681 meta:    ${index.meta}")
     indexJson = Pickler.write(index.projects.map(_.name))
-    _         = IO.write(Paths.get("pypi_names.json"))(indexJson)
+    _         = IO.write(outputRoot.resolve("pypi_names.json"))(indexJson)
   } yield ()).fold(throw _, _ => println("Done"))

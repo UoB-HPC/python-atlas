@@ -18,12 +18,20 @@ object AtlasLayout {
 
   trait Entry[C[_], P, S] extends SharedModel {
     def name: String
+    
     def position: P
     def size: S
+    
     def dependents: Int
     def dependencyIndices: C[Int]
     def channelIndices: C[Int]
     def subdirIndices: C[Int]
     def markerIndices: C[Int]
+
+    def description: Option[String]
+    def url: Option[String]
+    def licence: Option[String]
+    def version: Option[String]
+    def modifiedEpochMs: Option[Long]
   }
 }
